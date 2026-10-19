@@ -15,6 +15,9 @@ target=$(cd vendor/helix && rustc -vV | sed -n 's/^host: //p')
 name="helix-$version-$target"
 pkg="$root/dist/$name"
 
+# Don't hand credentials (e.g. GH_TOKEN from a local .env) to crate build scripts.
+unset GH_TOKEN GITHUB_TOKEN
+
 export CARGO_TARGET_DIR="$root/target"
 # helix-term's build.rs would git clone every grammar; we build them below instead.
 export HELIX_DISABLE_AUTO_GRAMMAR_BUILD=1
