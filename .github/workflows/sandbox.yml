@@ -1,0 +1,33 @@
+# Checks that scripts/offline.sh can start a sandbox without network access on
+# every platform the release builds on, without running a full build.
+name: Sandbox
+
+on:
+  push:
+    paths: [scripts/offline.sh, .github/workflows/sandbox.yml]
+  pull_request:
+    paths: [scripts/offline.sh, .github/workflows/sandbox.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts
+      - name: Allow bubblewrap to create namespaces
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Run a command without network
+        run: scripts/offline.sh uname -sm
