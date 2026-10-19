@@ -1,0 +1,31 @@
+[tools]
+python = "3.13" # scripts/vendor.py (needs tomllib)
+
+[tasks.bump]
+description = "Vendor helix at REV (default: master) with its crates and grammar sources"
+usage = 'arg "[rev]" default="master" help="helix branch, tag or commit"'
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+old=$(sed -n 's/^commit = "\\(.*\\)"$/\\1/p' helix.toml 2>/dev/null || true)
+python3 scripts/vendor.py "${usage_rev:-master}"
+new=$(sed -n 's/^commit = "\\(.*\\)"$/\\1/p' helix.toml)
+git status --short --untracked-files=no -- helix.toml .cargo
+if [ -n "$old" ] && [ "$old" != "$new" ]; then
+  echo "changes: https://github.com/helix-editor/helix/compare/$old...$new"
+fi
+echo "commit vendor/, .cargo/ and helix.toml, then push to main to publish a release"
+"""
+
+[tasks.setup]
+description = "Install the Rust toolchain pinned by vendored helix (needs network)"
+dir = "vendor/helix"
+run = "rustup toolchain install"
+
+[tasks.build]
+description = "Build and package helix from vendor/ into dist/"
+run = "scripts/build.sh"
+
+[tasks."build:offline"]
+description = "Like build, but with network access blocked (bwrap / sandbox-exec)"
+run = "scripts/offline.sh scripts/build.sh"

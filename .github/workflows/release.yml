@@ -1,0 +1,121 @@
+# Builds vendored helix with networking disabled and publishes it as a
+# packslip-signed GitHub release, whenever helix.toml changes on main.
+#
+# Keep this the only workflow that signs releases: mise pins the signer to this
+# file's path (.github/workflows/release.yml).
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths: [helix.toml]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      exists: ${{ steps.exists.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: helix.toml
+          sparse-checkout-cone-mode: false
+
+      - id: version
+        run: echo "version=$(sed -n 's/^version = "\(.*\)"$/\1/p' helix.toml)" >> "$GITHUB_OUTPUT"
+
+      - id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.version.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.exists == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-15]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install the pinned Rust toolchain (last networked step)
+        working-directory: vendor/helix
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          rustup toolchain install
+
+      - name: Allow bubblewrap to create namespaces
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Build offline
+        run: scripts/offline.sh scripts/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helix-${{ matrix.runner }}
+          path: dist/*.tar.xz
+          if-no-files-found: error
+
+  release:
+    needs: [check, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write      # Create the release and upload the bundle.
+      id-token: write      # Sign with the workflow's identity.
+      attestations: write  # Attest the collected files.
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: helix.toml
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: helix-*
+          merge-multiple: true
+
+      - name: Create draft release
+        run: |
+          commit=$(sed -n 's/^commit = "\(.*\)"$/\1/p' helix.toml)
+          gh release create "v$VERSION" dist/*.tar.xz \
+            --draft \
+            --target "$GITHUB_SHA" \
+            --title "helix $VERSION" \
+            --notes "Helix master at [\`${commit:0:10}\`](https://github.com/helix-editor/helix/commit/$commit), built from the sources vendored in this repository with networking disabled."
+
+      - uses: jdx/packslip@v1
+        with:
+          tag: v${{ env.VERSION }}
+          version: ${{ env.VERSION }}
+          artifacts: dist/*.tar.xz
+          bin: hx
+
+      - name: Publish release
+        run: gh release edit "v$VERSION" --draft=false --latest
