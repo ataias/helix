@@ -10,11 +10,18 @@ set -euo pipefail
 old=$(sed -n 's/^commit = "\\(.*\\)"$/\\1/p' helix.toml 2>/dev/null || true)
 python3 scripts/vendor.py "${usage_rev:-master}"
 new=$(sed -n 's/^commit = "\\(.*\\)"$/\\1/p' helix.toml)
-git status --short --untracked-files=no -- helix.toml .cargo
 if [ -n "$old" ] && [ "$old" != "$new" ]; then
   echo "changes: https://github.com/helix-editor/helix/compare/$old...$new"
 fi
-echo "commit vendor/, .cargo/ and helix.toml, then push to main to publish a release"
+# Nested .gitignore files in vendored trees could silently keep files out of a commit.
+ignored=$(git ls-files --others --ignored --exclude-standard -- vendor | grep -v 'runtime/grammars/.gitkeep$' || true)
+if [ -n "$ignored" ]; then
+  printf 'warning: git ignores these vendored files; add them with `git add -f`:\n%s\n' "$ignored" >&2
+fi
+if [ -n "$(git status --porcelain -- vendor .cargo helix.toml)" ]; then
+  git diff --stat -- helix.toml .cargo vendor/grammars.toml vendor/helix/Cargo.lock | cat
+  echo "commit vendor/, .cargo/ and helix.toml, then push to main to publish a release"
+fi
 """
 
 [tasks.setup]

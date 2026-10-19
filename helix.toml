@@ -3,5 +3,6 @@ version = "25.7.1-master.20260929023219.gba40e54742"
 commit = "ba40e547426b0f9896c8bdc699a4ab11f2b37dbc"
 committed_at = "2026-09-29T02:32:19Z"
 cargo_version = "25.7.1"
+cargo_lock_sha256 = "d05931bb2132b9e231bb7046a4bd3403bce371b5fc3d9552f10f71244ed9321d"
 rust_toolchain = "1.90.0"
 grammars = 303
