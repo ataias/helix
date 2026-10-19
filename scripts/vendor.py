@@ -6,7 +6,7 @@ Populates:
   vendor/cargo/          `cargo vendor` output for helix's Cargo.lock
   vendor/grammars/       tree-sitter grammar sources at the revs pinned in languages.toml
   vendor/grammars.toml   the source each vendored grammar was fetched from
-  helix.toml             what was vendored, and the packslip version derived from it
+  helix.toml             what was vendored, and the release version (YY.M.N) assigned to it
 
 Only what changed is fetched again: helix is skipped when the requested ref still
 points at the vendored commit, crates when Cargo.lock is unchanged, and each
@@ -96,8 +96,26 @@ def resolve(rev):
     return None
 
 
-def semver_part(n):
-    return str(int(n))  # semver forbids leading zeros: 25.07.1 -> 25.7.1
+VERSION_RE = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+
+
+def next_version(today):
+    """YY.M.N for today, N being one more than any vYY.M.* already taken: as a
+    release tag, or as a version pushed to main that CI may not have released yet."""
+    prefix = (today.year % 100, today.month)
+    # Read over HTTPS, so a public repo needs no SSH key for this.
+    origin = git("remote", "get-url", "origin", cwd=ROOT)
+    origin = re.sub(r"^(?:ssh://)?git@github\.com[:/]", "https://github.com/", origin)
+    taken = re.findall(r"refs/tags/v(\d+\.\d+\.\d+)$", git("ls-remote", "--tags", origin, cwd=ROOT), re.M)
+    if git("ls-remote", "--heads", origin, "main", cwd=ROOT):
+        git("fetch", "-q", "--no-tags", origin, "main", cwd=ROOT)
+        history = git("log", "-p", "--format=", "FETCH_HEAD", "--", "helix.toml", cwd=ROOT)
+        taken += re.findall(r'^\+version = "(.*)"$', history, re.M)
+    numbers = [0]
+    for version in taken:
+        if (m := VERSION_RE.fullmatch(version)) and (int(m[1]), int(m[2])) == prefix:
+            numbers.append(int(m[3]))
+    return f"{prefix[0]}.{prefix[1]}.{max(numbers) + 1}"
 
 
 def vendor_helix(rev, tmp):
@@ -239,7 +257,11 @@ def main():
     args = parser.parse_args()
 
     state = load_toml(STATE)
-    complete = state.get("cargo_lock_sha256") and GRAMMAR_LOCK.exists()
+    complete = (
+        state.get("cargo_lock_sha256")
+        and GRAMMAR_LOCK.exists()
+        and VERSION_RE.fullmatch(state.get("version", ""))
+    )
     if not args.force and complete and resolve(args.rev) == state.get("commit"):
         print(f"==> helix {args.rev} is still {state['commit']}: nothing to do")
         return
@@ -273,10 +295,10 @@ def main():
                 print(f"    {kind}: {' '.join(names[:30])}{more}")
 
     helix = tomllib.loads((VENDOR / "helix" / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-    base = ".".join(semver_part(n) for n in helix.split("."))
-    # Prerelease of the upstream version, ordered by commit time; the short sha is
-    # for humans (prefixed with "g" so it can never be a numeric identifier).
-    version = f"{base}-master.{committed:%Y%m%d%H%M%S}.g{commit[:10]}"
+    # A new helix commit gets a new release number; an unchanged one keeps its own.
+    version = state.get("version", "")
+    if commit != state.get("commit") or not VERSION_RE.fullmatch(version):
+        version = next_version(datetime.date.today())
     toolchain = load_toml(VENDOR / "helix" / "rust-toolchain.toml")["toolchain"]["channel"]
 
     # Written last: their absence/staleness is what makes the next run redo work.

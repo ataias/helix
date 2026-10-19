@@ -17,7 +17,9 @@ concurrency:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write  # Delete a draft left behind by a failed run.
     outputs:
       version: ${{ steps.version.outputs.version }}
       exists: ${{ steps.exists.outputs.exists }}
@@ -33,11 +35,18 @@ jobs:
       - id: exists
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.version.outputs.version }}
         run: |
-          if gh release view "v${{ steps.version.outputs.version }}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
+          draft=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || echo missing)
+          if [ "$draft" = true ]; then
+            # A failed run never published it; start over.
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes
+            draft=missing
+          fi
+          if [ "$draft" = missing ]; then
             echo "exists=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           fi
 
   build:
@@ -73,7 +82,7 @@ jobs:
       - name: Build offline
         run: scripts/offline.sh scripts/build.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: helix-${{ matrix.runner }}
           path: dist/*.tar.xz
@@ -81,7 +90,7 @@ jobs:
 
   release:
     needs: [check, build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write      # Create the release and upload the bundle.
       id-token: write      # Sign with the workflow's identity.
@@ -95,7 +104,7 @@ jobs:
           sparse-checkout: helix.toml
           sparse-checkout-cone-mode: false
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           pattern: helix-*
@@ -104,11 +113,12 @@ jobs:
       - name: Create draft release
         run: |
           commit=$(sed -n 's/^commit = "\(.*\)"$/\1/p' helix.toml)
+          upstream=$(sed -n 's/^cargo_version = "\(.*\)"$/\1/p' helix.toml)
           gh release create "v$VERSION" dist/*.tar.xz \
             --draft \
             --target "$GITHUB_SHA" \
             --title "helix $VERSION" \
-            --notes "Helix master at [\`${commit:0:10}\`](https://github.com/helix-editor/helix/commit/$commit), built from the sources vendored in this repository with networking disabled."
+            --notes "Helix master (\`$upstream\` + [\`${commit:0:10}\`](https://github.com/helix-editor/helix/commit/$commit)), built from the sources vendored in this repository with networking disabled."
 
       - uses: jdx/packslip@v1
         with:

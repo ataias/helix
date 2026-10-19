@@ -12,20 +12,22 @@ network access once the Rust toolchain is installed:
 | `vendor/cargo/` | `cargo vendor` output for helix's `Cargo.lock` (used via `.cargo/config.toml`) |
 | `vendor/grammars/` | tree-sitter grammar sources at the revs pinned in helix's `languages.toml`, trimmed to the files the build reads plus licenses |
 | `vendor/grammars.toml` | the source (git, rev, subpath) each vendored grammar came from |
-| `helix.toml` | the vendored commit, the release version derived from it, and the `Cargo.lock` hash the crates were vendored from |
+| `helix.toml` | the vendored commit, the release version assigned to it, and the `Cargo.lock` hash the crates were vendored from |
 
 ## Install
 
 ```toml
 # mise.toml
 [tools]
-"packslip:github.com/OWNER/REPO" = "25.7.1-master.20260929023219.gba40e54742"
+"packslip:ataias/helix" = "latest" # or pin one, e.g. "26.10.1"
 ```
 
-Versions are `<helix version>-master.<commit time, UTC>.g<commit>`, so they are
-semver prereleases ordered by commit time. Pin exact versions as above. Pinned
-versions also skip mise's `minimum_release_age` wait. To track the newest
-version instead, use `{ version = "latest", prerelease = true }`.
+Versions are `YY.M.N`. `mise run bump` assigns the next one when helix moves
+to a new commit: `26.10.1` is the first build in October 2026, `26.10.2` the
+second, and so on. `hx --version` still reports helix's own version and commit,
+e.g. `25.07.1 (ba40e547)`. mise only offers releases older than its
+`minimum_release_age` (24h by default) for `latest`; a pinned version installs
+right away.
 
 `hx` finds `runtime/` (queries, themes, compiled grammars) next to the
 executable, so `HELIX_RUNTIME` doesn't need to be set.

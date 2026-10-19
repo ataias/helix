@@ -2,3 +2,4 @@
 /dist/
 /.env
 /mise.local.toml
+__pycache__/
