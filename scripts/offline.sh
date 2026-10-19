@@ -6,19 +6,23 @@ set -euo pipefail
 
 case "$(uname -s)" in
 Linux)
-	# Probe first: unprivileged user namespaces can be disabled (e.g. by
-	# Ubuntu's AppArmor policy), and a silent fallback would defeat the point.
-	if ! bwrap --unshare-user --unshare-net --dev-bind / / true 2>/dev/null; then
-		echo "offline: bwrap cannot create a network namespace here" >&2
-		exit 1
-	fi
-	exec bwrap --unshare-user --unshare-net --dev-bind / / --proc /proc -- "$@"
+	sandbox=(bwrap --unshare-user --unshare-net --dev-bind / / --proc /proc --)
 	;;
 Darwin)
-	exec sandbox-exec -p '(version 1) (allow default) (deny network*)' "$@"
+	sandbox=(sandbox-exec -p '(version 1) (allow default) (deny network*)')
 	;;
 *)
 	echo "offline: unsupported OS $(uname -s)" >&2
 	exit 1
 	;;
 esac
+
+# Prove the sandbox starts and blocks the network before trusting it: this
+# succeeds only if it ran inside the sandbox and the request failed.
+if ! "${sandbox[@]}" sh -c '! curl -sS -m 10 -o /dev/null https://github.com 2>/dev/null'; then
+	echo "offline: could not start a sandbox without network access" >&2
+	exit 1
+fi
+echo "offline: verified that github.com is unreachable inside the sandbox" >&2
+
+exec "${sandbox[@]}" "$@"
