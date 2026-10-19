@@ -24,7 +24,7 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       exists: ${{ steps.exists.outputs.exists }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: helix.toml
           sparse-checkout-cone-mode: false
@@ -59,7 +59,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install the pinned Rust toolchain (last networked step)
         working-directory: vendor/helix
@@ -99,7 +99,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       VERSION: ${{ needs.check.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: helix.toml
           sparse-checkout-cone-mode: false
